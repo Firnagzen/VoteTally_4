@@ -1,0 +1,7 @@
+__pycache__/
+bbcodeparser.html
+*.json
+*.dmp
+setup.py
+test.py
+venv/
