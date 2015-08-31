@@ -1,7 +1,7 @@
 import json, falcon
 import voteparser
  
-class ThingsResource(object):
+class TallyApp(object):
     def __init__(self):
         self.VC = voteparser.VoteContainer()
 
@@ -47,18 +47,13 @@ class ThingsResource(object):
             resp.body = json.dumps(result)
  
 
-# falcon.API instances are callable WSGI apps
 wsgi_app = api = falcon.API()
- 
-# Resources are represented by long-lived class instances
-things = ThingsResource()
- 
-# things will handle all requests to the '/things' URL path
-api.add_route('/things', things)
+app = TallyApp()
+api.add_route('/tally', app)
 
 # source venv/bin/activate
 # gunicorn main:api
-# http://localhost:8000/things
+# http://localhost:8000/tally
 
 
 # {
