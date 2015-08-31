@@ -3,5 +3,4 @@ bbcodeparser.html
 *.json
 *.dmp
 setup.py
-test.py
 venv/
