@@ -165,13 +165,15 @@ class VoteContainer(object):
         return mod
 
 
-    def uniq_votes_by_name(self, vote_list):
+    def uniq_votes_by_name(self, vote_list, op=""):
         """Removes duplicate votes by the same user. Takes list, returns an
         list. Additionally updates votes by username referral, direction
         based on the refer_dir parameter."""
         uniqed_votes = LUOrderedDict()
 
         for vote in vote_list:
+            if vote['voters'][0] == op:
+                continue
 
             if self.refer_dir:
                 self.update_vote_by_name(vote, uniqed_votes)
@@ -343,7 +345,7 @@ class VoteContainer(object):
 
         vote_list = self.extract_votes(post_list)
 
-        vote_list = self.uniq_votes_by_name(vote_list)
+        vote_list = self.uniq_votes_by_name(vote_list, op=op.lower())
 
         if not self.instant_runoff:
             if self.break_level:

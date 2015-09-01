@@ -126,7 +126,7 @@ with open("pmas.json", "r") as f:
 
 # import cProfile
 # p = cProfile.run(
-#     "[BC.parse_tags(i['message']) for i in big_test['posts']]", 
+#     "VC.tally_votes(big_test['posts'], 'Firnagzen')", 
 #     sort = 'cumulative')
 
 # "[VC.tally_votes(test_vote_list) for i in range(10000)]"
@@ -134,7 +134,7 @@ with open("pmas.json", "r") as f:
 # "[BC.line_extract(ppost, VC.is_vote) for i in range(10000)]"
 
 # n = 10
-# a = timeit.timeit("VC.tally_votes(big_test['posts'])", setup=dedent("""
+# a = timeit.timeit("VC.tally_votes(big_test['posts'], 'Firnagzen')", setup=dedent("""
 # from __main__ import BBCodeParser, VoteContainer, big_test
 # VC = VoteContainer()"""), number = n)
 # print(a/n)
@@ -144,11 +144,11 @@ with open("pmas.json", "r") as f:
 #     VC.BBparse.parse_tags, VC.extract_votes, VC.vote_from_text, 
 #     VC.BBparse.index_tag_pairs, VC.BBparse.line_extract
 #     )
-# # profiler.add_function(func)
+# profiler.add_function(func)
 # profiler.enable_by_count()
 
-b = VC.tally_votes_timeout(big_test['posts'], 'Firnagzen')
-print(b)
+b = VC.tally_votes(big_test['posts'], 'Firnagzen')
+# print(b)
 
 # profiler.print_stats()
 
