@@ -3,11 +3,70 @@ import bisect
 from itertools import chain, zip_longest
 from collections import namedtuple, Counter, deque
 
+class TagSoup(object):
+    def __init__(self, bbc_rep, plain_rep, bbc=None):
+        self.bbc_rep         = bbc_rep
+        self.bbc_indices     = bbc
+        self.bbc_all_i       = {y for v in bbc.values() for x in v for y in x}
+
+
+    def __getitem__(self, key):
+        bbslice = self.bbc_rep[key]
+
+        try:
+            le = key.start
+        except AttributeError:
+            plainslice = bbslice
+        else:
+            plainslice = [
+                i for n, i in enumerate(bbslice) 
+                if (n + le) not in self.bbc_all_i
+            ]
+
+        return bbslice, plainslice
+
+
+    def remove_sections(self, tags):
+        rem_o = deque(i for r in tags for i in self.bbc_indices[r][0])
+        rem_c = deque(i for r in tags for i in self.bbc_indices[r][1])
+
+        if rem_o and rem_c:
+            rem_a = deque()
+            level, prev_level = 1, 0
+            o, c = rem_o.popleft(), rem_c.popleft()
+
+            while True:
+                # Detect step from baseline
+                if prev == 0 and level == 1:
+                    start = o
+
+                # Detect step to baseline
+                elif prev == 1 and level == 0:
+                    rem_a.append((start, c))
+
+                if o < c:
+                    prev_level, level = level, level + 1
+                    try:
+                        o = rem_o.popleft()
+                    except IndexError:
+                        pass
+
+                else:
+                    prev_level, level = level, max(0, level - 1)
+                    try:
+                        c = rem_c.popleft()
+                    except IndexError:
+                        break
+
+        for i, j in reversed(rem_a):
+            del self.bbc_rep[i:j]
+
+
 class BBCodeParser(object):
     def __init__(self):
         self.tag_re = re.compile(
             r"("                                   # -Capture tag entire
-            r"\n|"                                 # Newline
+            r"\n\n*|"                              # Newline
             r"\["                                  # Opening square bracket
             r"(/)?"                                # -Capture the closing tag /
             r"([^]=]*)"                            # -Capture tag name
@@ -27,6 +86,8 @@ class BBCodeParser(object):
             "fleft", "fright", "gview", "latex", "slider", "spoilerbb", "tabs", 
             "xtable"
         ])
+        self.first = 0
+
 
     def grouper(self, iterable, n, fillvalue=None):
         args = [iter(iterable)] * n
@@ -45,33 +106,58 @@ class BBCodeParser(object):
 
         For example,
         Tag(full='[font="Tahoma"]', close=None, name='font', value='Tahoma')
+
+        Additionally returns indexed lists of BBCode tag positions as a
+        dictionary indexed by BBCode names of the form:
+        {
+            'name': [deque_of_open_tag_positions, deque_of_close_tag positions],
+        }
         """
         chop = self.tag_re.split(target)
         chop = self.grouper(chop, 6)
 
         outer = deque()
+        count = -1
+        positions = dict()
 
         # re.split produces text in groups of 7
         for t, full, close, name, _, value in chop:
             if t:
                 outer.append(t)
+                count += 1
 
             if full:
+                count += 1
+
                 try:
                     name = name.lower()
+
                 except AttributeError:
                     outer.append(full)
+
                 else:
                     # Validate BBCode
                     if name in self.valid_bbcode:
                         outer.append(self.Tag(full, close, name, value))
+
+                        # Build position index for fast BBCode access
+                        try:
+                            curr = positions[name]
+                        except KeyError:
+                            curr = positions[name] = [deque(), deque()]
+                        finally:
+                            if close:
+                                curr[1].append(count + 1)
+                            else:
+                                curr[0].append(count)
+
                     else:
                         outer.append(full)
 
-        return list(outer)
+        return list(outer), positions
 
 
-    def index_tag_pairs(self, target, tags):
+    def index_tag_pairs(self, bbindices, tags):
         """Expects a list as produced by parse_tags, returns largest possible 
         ranges wrapped by matching tags. Takes an iterable of tags."""
         tags = set(tags)
@@ -213,7 +299,7 @@ class BBCodeParser(object):
         for n, node in enumerate(target):
             # if newline, check the sentence and clear it.
 
-            if node == '\n':
+            if '\n' in node:
                 if condition(plain_rep):
                     plain_lines.append(plain_rep)
                     lines.append(bbcode_rep)
