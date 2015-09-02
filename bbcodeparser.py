@@ -1,13 +1,13 @@
 import re
-import bisect
-from itertools import chain, zip_longest, islice
+from bisect import bisect_left, bisect_right
 from collections import namedtuple, Counter, deque
+from itertools import chain, zip_longest, islice, compress
 
 class TagSoup(object):
-    def __init__(self, bbc_rep, plain_rep, bbc=None):
+    def __init__(self, bbc_rep, bbc):
         self.bbc_rep        = bbc_rep
         self.bbc_indices    = bbc[0]
-        self.newline_pos    = bbc[1]
+        self.newline_pos    = list(bbc[1])
 
         self.bbc_all_is     = {y for v in bbc[0].values() for x in v for y in x}
         self.bbc_all_il     = sorted(self.bbc_all_is)
@@ -27,67 +27,72 @@ class TagSoup(object):
         return bbslice, plainslice
 
 
-    def skip_slice(self, lst, start, stop):
+    def skip_slice(self, lst, start, stop, skip):
         """Returns a slice of list lst from start to stop, skipping indices in
-        self.bbc_all_il"""
-        indices = [i for i in self.bbc_all_il if start <= i < stop]
+        skip"""
+        start = start if start else 0
+        stop = stop if stop else len(lst)
+        indices = [i for i in skip if start <= i < stop]
 
         ranges = [[start]]
         for i in indices:
-            ranges[-1].append(max(0, i-1))
+            ranges[-1].append(i)
             ranges.append([i + 1])
         ranges[-1].append(stop)
 
         return list(chain.from_iterable(islice(lst, s, e) for s, e in ranges))
 
 
-    def get_lines(self, condition):
+    def get_lines(self):
         bbslice, plainslice = self[:]
 
         #Slice the regular bbcode by positions
-        ns = list(zip([0]+self.newline_pos, self.newline_pos+[None]))
+        ns = list(zip([0]+self.newline_pos, self.newline_pos + [None]))
         bblines = [bbslice[i:j] for i, j in ns]
 
         #Shift the newline indices by bbcode positions
-        count, nnewlines, curr_bbi = 0, [], self.bbc_all_il[0]
+        count, nnewlines, curr_bbi = 0, [[0]], self.bbc_all_il[0]
         for i in self.newline_pos:
-            if i > cur_bbi:
+            while i > curr_bbi:
                 count += 1
                 curr_bbi = self.bbc_all_il[count]
 
-            nnewlines.append(i - count)
+            nnewlines[-1].append(i - count)
+            nnewlines.append([i + 1 - count])
+        nnewlines[-1].append(None)
 
         #Slice the plaintext by positions
-        ns = list(zip([0]+nnewlines, nnewlines+[None]))
-        plainlines = [plainslice[i:j] for i, j in ns]
+        plainlines = [plainslice[i:j] for i, j in nnewlines]
 
-        return bbslice, plainslice
+        return bblines, plainlines
 
 
     def remove_sections(self, tags):
-        rem_o = deque(i for r in tags for i in self.bbc_indices[r][0])
-        rem_c = deque(i for r in tags for i in self.bbc_indices[r][1])
+        rem_o = deque(sorted(i for r in tags for i in self.bbc_indices[r][0]))
+        rem_c = deque(sorted(i for r in tags for i in self.bbc_indices[r][1]))
 
+        # Determine slicing positions
         if rem_o and rem_c:
             rem_a = deque()
             level, prev_level = 1, 0
-            o, c = rem_o.popleft(), rem_c.popleft()
+            o, c = rem_o.popleft(), 0
 
             while True:
                 # Detect step from baseline
-                if prev == 0 and level == 1:
+                if prev_level == 0 and level == 1:
                     start = o
 
                 # Detect step to baseline
-                elif prev == 1 and level == 0:
+                elif prev_level == 1 and level == 0:
                     rem_a.append((start, c))
 
+                # inspect lists for open/closure of tags
                 if o < c:
                     prev_level, level = level, level + 1
                     try:
                         o = rem_o.popleft()
                     except IndexError:
-                        pass
+                        o = float('inf')
 
                 else:
                     prev_level, level = level, max(0, level - 1)
@@ -96,8 +101,41 @@ class TagSoup(object):
                     except IndexError:
                         break
 
+        # Slice out portions from bbcode representation
         for i, j in reversed(rem_a):
-            del self.bbc_rep[i:j]
+            del self.bbc_rep[i:j+1]
+
+        # Slice out sections from the newline_positions
+        rem_n = [
+            (bisect_left(self.newline_pos, i),bisect_right(self.newline_pos, j)) 
+            for i, j in rem_a
+            ]
+        for i, j in reversed(rem_n):
+            del self.newline_pos[i:j]
+
+        # Delete removed tags from indices
+        for i in tags:
+            del self.bbc_indices[i]
+
+        # Normalize positions
+        bbc = self.bbc_indices.values()
+        self.bbc_all_il = sorted(y for v in bbc for x in v for y in x)
+
+        # Remove positions and normalize others
+        count, new_il = 0, deque()
+        rem_i = iter(rem_a)
+        lower, upper = next(rem_i)
+
+        for i in self.bbc_all_il:
+            if i >= upper:
+                count += upper - lower + 1
+                lower, upper = next(rem_i)
+
+            if i < lower:
+                new_il.append(i - count)
+
+        self.bbc_all_il = new_il
+
 
 
 class BBCodeParser(object):
@@ -173,6 +211,8 @@ class BBCodeParser(object):
 
                 except AttributeError:
                     outer.append(full)
+                    if '\n' in full:
+                        newline_pos.append(count)
 
                 else:
                     # Validate BBCode
@@ -185,12 +225,19 @@ class BBCodeParser(object):
                         except KeyError:
                             curr = positions[name] = [deque(), deque()]
                         finally:
-                            curr[1 if close else 0].append(count)
+                            if close:
+                                curr[1].append(count)
+                            else:
+                                curr[0].append(count)
 
                     else:
                         outer.append(full)
-                        if '\n' in full:
-                            newline_pos.append(count)
+
+        if self.first != 3:
+            print(list(outer))
+            print(positions)
+            print(newline_pos)
+            print("="*30)
 
         return list(outer), (positions, newline_pos)
 
