@@ -1,13 +1,16 @@
 import re
 import bisect
-from itertools import chain, zip_longest
+from itertools import chain, zip_longest, islice
 from collections import namedtuple, Counter, deque
 
 class TagSoup(object):
     def __init__(self, bbc_rep, plain_rep, bbc=None):
-        self.bbc_rep         = bbc_rep
-        self.bbc_indices     = bbc
-        self.bbc_all_i       = {y for v in bbc.values() for x in v for y in x}
+        self.bbc_rep        = bbc_rep
+        self.bbc_indices    = bbc[0]
+        self.newline_pos    = bbc[1]
+
+        self.bbc_all_is     = {y for v in bbc[0].values() for x in v for y in x}
+        self.bbc_all_il     = sorted(self.bbc_all_is)
 
 
     def __getitem__(self, key):
@@ -15,13 +18,48 @@ class TagSoup(object):
 
         try:
             le = key.start
+            lo = key.stop
         except AttributeError:
             plainslice = bbslice
         else:
-            plainslice = [
-                i for n, i in enumerate(bbslice) 
-                if (n + le) not in self.bbc_all_i
-            ]
+            plainslice = self.skip_slice(self.bbc_rep, le, lo, self.bbc_all_il)
+
+        return bbslice, plainslice
+
+
+    def skip_slice(self, lst, start, stop):
+        """Returns a slice of list lst from start to stop, skipping indices in
+        self.bbc_all_il"""
+        indices = [i for i in self.bbc_all_il if start <= i < stop]
+
+        ranges = [[start]]
+        for i in indices:
+            ranges[-1].append(max(0, i-1))
+            ranges.append([i + 1])
+        ranges[-1].append(stop)
+
+        return list(chain.from_iterable(islice(lst, s, e) for s, e in ranges))
+
+
+    def get_lines(self, condition):
+        bbslice, plainslice = self[:]
+
+        #Slice the regular bbcode by positions
+        ns = list(zip([0]+self.newline_pos, self.newline_pos+[None]))
+        bblines = [bbslice[i:j] for i, j in ns]
+
+        #Shift the newline indices by bbcode positions
+        count, nnewlines, curr_bbi = 0, [], self.bbc_all_il[0]
+        for i in self.newline_pos:
+            if i > cur_bbi:
+                count += 1
+                curr_bbi = self.bbc_all_il[count]
+
+            nnewlines.append(i - count)
+
+        #Slice the plaintext by positions
+        ns = list(zip([0]+nnewlines, nnewlines+[None]))
+        plainlines = [plainslice[i:j] for i, j in ns]
 
         return bbslice, plainslice
 
@@ -119,6 +157,7 @@ class BBCodeParser(object):
         outer = deque()
         count = -1
         positions = dict()
+        newline_pos = deque()
 
         # re.split produces text in groups of 7
         for t, full, close, name, _, value in chop:
@@ -146,15 +185,14 @@ class BBCodeParser(object):
                         except KeyError:
                             curr = positions[name] = [deque(), deque()]
                         finally:
-                            if close:
-                                curr[1].append(count + 1)
-                            else:
-                                curr[0].append(count)
+                            curr[1 if close else 0].append(count)
 
                     else:
                         outer.append(full)
+                        if '\n' in full:
+                            newline_pos.append(count)
 
-        return list(outer), positions
+        return list(outer), (positions, newline_pos)
 
 
     def index_tag_pairs(self, bbindices, tags):
