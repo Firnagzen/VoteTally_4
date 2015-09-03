@@ -69,7 +69,6 @@ class TagSoup(object):
 
             nnewlines[-1].append(i - count)
             nnewlines.append([i + 1 - count])
-
         nnewlines[-1].append(None)
 
         #Slice the plaintext by positions
@@ -278,7 +277,10 @@ class BBCodeParser(object):
                         except KeyError:
                             curr = positions[name] = deque(), deque()
                         finally:
-                            curr[1 if close else 0].append(count)
+                            if close:
+                                curr[1].append(count)
+                            else:
+                                curr[0].append(count)
 
                     else:
                         outer.append(full)
