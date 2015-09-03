@@ -69,14 +69,11 @@ class VoteContainer(object):
     def vote_from_text(self, post):
         """Extracts vote, returns a list of the parsed vote and plain text vote.
         Tidies up BBCode. Currently ignores all quoted text."""
-        ppost, bbindices = self.BBparse.parse_tags(post)
+        ppost = self.BBparse.parse_tags(post)
 
-        plower = post.lower()
-        rem = []
-        if any((i in plower) for i in self.rem_text_check):
-            rem = self.BBparse.index_tag_pairs(bbindices, self.rem_text)
-
-        vote, vote_plain = self.BBparse.line_extract(ppost, self.is_vote, rem)
+        vote, vote_plain = self.BBparse.line_extract(
+            ppost, self.is_vote, self.rem_text)
+        
         return vote, vote_plain
 
 

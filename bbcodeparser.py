@@ -1,4 +1,5 @@
 import re
+from operator import itemgetter
 from bisect import bisect_left, bisect_right
 from collections import namedtuple, Counter, deque
 from itertools import chain, zip_longest, islice, compress
@@ -46,95 +47,150 @@ class TagSoup(object):
     def get_lines(self):
         bbslice, plainslice = self[:]
 
+        # Early exit
+        if not self.bbc_all_il:
+            return bbslice, "".join(plainslice)
+
         #Slice the regular bbcode by positions
         ns = list(zip([0]+self.newline_pos, self.newline_pos + [None]))
         bblines = [bbslice[i:j] for i, j in ns]
 
         #Shift the newline indices by bbcode positions
         count, nnewlines, curr_bbi = 0, [[0]], self.bbc_all_il[0]
+        le = len(self.bbc_all_il)
+
         for i in self.newline_pos:
-            while i > curr_bbi:
+            while count < le and i > curr_bbi:
                 count += 1
-                curr_bbi = self.bbc_all_il[count]
+                try:
+                    curr_bbi = self.bbc_all_il[count]
+                except IndexError:
+                    pass
 
             nnewlines[-1].append(i - count)
             nnewlines.append([i + 1 - count])
+
         nnewlines[-1].append(None)
 
         #Slice the plaintext by positions
-        plainlines = [plainslice[i:j] for i, j in nnewlines]
+        plainlines = ["".join(plainslice[i:j]) for i, j in nnewlines]
 
         return bblines, plainlines
 
 
+    def find_slice_pos(self, rem_o, rem_c):
+        rem_a = deque()
+        level, prev_level = 0, 0
+        lenght = max(len(rem_o), len(rem_c))
+        o, c = rem_o.popleft(), rem_c.popleft()
+
+        while True:
+            if o < c:
+                # Rising edge
+                prev_level, level = level, level + 1
+
+                # Detect step from baseline
+                if prev_level == 0 and level == 1:
+                    start = o
+
+                try:
+                    o = rem_o.popleft()
+                except IndexError:
+                    o = float('inf')
+
+            else:
+                # Falling edge
+                prev_level, level = level, max(0, level - 1)
+
+                # Detect step to baseline
+                if prev_level == 1 and level == 0:
+                    rem_a.append((start, c))
+
+                try:
+                    c = rem_c.popleft()
+                except IndexError:
+                    break
+
+        return rem_a
+
+
+    def normalize_newlines(self, rem_a):
+        # Remove positions and normalize others
+        count, new_new = 0, deque()
+        rem_i = iter(rem_a)
+        lower, upper = next(rem_i)
+
+        for i in self.newline_pos:
+            while i >= upper:
+                count += upper - lower + 1
+                try:
+                    lower, upper = next(rem_i)
+                except StopIteration:
+                    upper = lower = float('inf')
+
+            if i < lower:
+                new_new.append(i - count)
+
+        self.newline_pos = list(new_new)
+
+
+    def normalize_bbcode_index(self, rem_a):
+        # List out positions
+        f = itemgetter(2)
+        bbc = sorted(
+            ((k, oc, i)                          # Key, open or close, index
+            for k, l in self.bbc_indices.items() # Expand dictionary
+            for oc, sl in enumerate(l)           # Open and close lists
+            for i in sl),                        # Indexes
+            key = f)
+
+        # Remove positions and normalize others
+        count, new_il = 0, dict()
+        rem_i = iter(rem_a)
+        lower, upper = next(rem_i)
+
+        for k, oc, i in bbc:
+            while i >= upper:
+                count += upper - lower + 1
+                try:
+                    lower, upper = next(rem_i)
+                except StopIteration:
+                    upper = lower = float('inf')
+
+            if i < lower:
+                try:
+                    new_il[k][oc].append(i - count)
+                except KeyError:
+                    new_il[k] = deque(), deque()
+                    new_il[k][oc].append(i - count)
+
+        # Reset values
+        self.bbc_indices = new_il
+        self.bbc_all_is  = {y for v in new_il.values() for x in v for y in x}
+        self.bbc_all_il  = sorted(self.bbc_all_is)
+
+
     def remove_sections(self, tags):
+        tags = [i for i in tags if i in self.bbc_indices]
         rem_o = deque(sorted(i for r in tags for i in self.bbc_indices[r][0]))
         rem_c = deque(sorted(i for r in tags for i in self.bbc_indices[r][1]))
 
         # Determine slicing positions
         if rem_o and rem_c:
-            rem_a = deque()
-            level, prev_level = 1, 0
-            o, c = rem_o.popleft(), 0
-
-            while True:
-                # Detect step from baseline
-                if prev_level == 0 and level == 1:
-                    start = o
-
-                # Detect step to baseline
-                elif prev_level == 1 and level == 0:
-                    rem_a.append((start, c))
-
-                # inspect lists for open/closure of tags
-                if o < c:
-                    prev_level, level = level, level + 1
-                    try:
-                        o = rem_o.popleft()
-                    except IndexError:
-                        o = float('inf')
-
-                else:
-                    prev_level, level = level, max(0, level - 1)
-                    try:
-                        c = rem_c.popleft()
-                    except IndexError:
-                        break
+            rem_a = self.find_slice_pos(rem_o, rem_c)
+        else:
+            # Early exit
+            return
 
         # Slice out portions from bbcode representation
         for i, j in reversed(rem_a):
             del self.bbc_rep[i:j+1]
 
-        # Slice out sections from the newline_positions
-        rem_n = [
-            (bisect_left(self.newline_pos, i),bisect_right(self.newline_pos, j)) 
-            for i, j in rem_a
-            ]
-        for i, j in reversed(rem_n):
-            del self.newline_pos[i:j]
+        # Normalize newline indices around removed segments
+        self.normalize_newlines(rem_a)
 
-        # Delete removed tags from indices
-        for i in tags:
-            del self.bbc_indices[i]
-
-        # Normalize positions
-        bbc = self.bbc_indices.values()
-        self.bbc_all_il = sorted(y for v in bbc for x in v for y in x)
-
-        # Remove positions and normalize others
-        count, new_il = 0, deque()
-        rem_i = iter(rem_a)
-        lower, upper = next(rem_i)
-
-        for i in self.bbc_all_il:
-            if i >= upper:
-                count += upper - lower + 1
-                lower, upper = next(rem_i)
-
-            if i < lower:
-                new_il.append(i - count)
-
-        self.bbc_all_il = new_il
+        # Normalize bbcode indices around removed segments
+        self.normalize_bbcode_index(rem_a)
 
 
 
@@ -183,11 +239,7 @@ class BBCodeParser(object):
         For example,
         Tag(full='[font="Tahoma"]', close=None, name='font', value='Tahoma')
 
-        Additionally returns indexed lists of BBCode tag positions as a
-        dictionary indexed by BBCode names of the form:
-        {
-            'name': [deque_of_open_tag_positions, deque_of_close_tag positions],
-        }
+        Returns a TagSoup object.
         """
         chop = self.tag_re.split(target)
         chop = self.grouper(chop, 6)
@@ -211,6 +263,7 @@ class BBCodeParser(object):
 
                 except AttributeError:
                     outer.append(full)
+                    # Build newline index for fast access
                     if '\n' in full:
                         newline_pos.append(count)
 
@@ -223,49 +276,14 @@ class BBCodeParser(object):
                         try:
                             curr = positions[name]
                         except KeyError:
-                            curr = positions[name] = [deque(), deque()]
+                            curr = positions[name] = deque(), deque()
                         finally:
-                            if close:
-                                curr[1].append(count)
-                            else:
-                                curr[0].append(count)
+                            curr[1 if close else 0].append(count)
 
                     else:
                         outer.append(full)
 
-        if self.first != 3:
-            print(list(outer))
-            print(positions)
-            print(newline_pos)
-            print("="*30)
-
-        return list(outer), (positions, newline_pos)
-
-
-    def index_tag_pairs(self, bbindices, tags):
-        """Expects a list as produced by parse_tags, returns largest possible 
-        ranges wrapped by matching tags. Takes an iterable of tags."""
-        tags = set(tags)
-        output = deque()
-        start, level, prev = 0, 0, 0
-
-        # Find tag indices, position 0 for open and 1 for closed
-        for n, tag in enumerate(target):
-            if isinstance(tag, self.Tag) and tag.name in tags:
-                level += -1 if tag.close else 1
-                level = max(0, level)
-
-                # Detect step from baseline
-                if prev == 0 and level == 1:
-                    start = n
-
-                # Detect step to baseline
-                elif prev == 1 and level == 0:
-                    output.append((start, n))
-
-                prev = level
-
-        return list(output)
+        return TagSoup(list(outer), (positions, newline_pos))
 
 
     def close_all_open(self, target):
@@ -321,98 +339,37 @@ class BBCodeParser(object):
         return output
 
 
-    def range_generator(self, ignore_ranges):
-        "Gets next range from list of ranges. Yields infinity on finish."
-        large =  9999999
-
-        for i in ignore_ranges:
-            yield i
-        yield large, large
-
-
-    def in_valid_range(self, flat_ignore_ranges, ind):
-        "Checks if ind is inside ignore ranges"
-        return not bisect.bisect(flat_ignore_ranges, ind) % 2
-
-
-    def indices(self, lst, element):
-        "Finds element in lst, returns lists of appendices."
-        result = deque()
-        offset = -1
-        while True:
-            try:
-                offset = lst.index(element, offset+1)
-            except ValueError:
-                return result
-            result.append(offset)
-
-    def merge_ranges(self, ranges):
-        "Merge adjacent and overlapping ranges."
-        ranges = iter(sorted(ranges))
-        current_start, current_stop = next(ranges)
-
-        for start, stop in ranges:
-            if start > current_stop:
-                # Gap between segments: output current segment
-                yield current_start, current_stop
-                current_start, current_stop = start, stop
-
-            else:
-                # Segments adjacent or overlapping: merge.
-                current_stop = max(current_stop, stop)
-                
-        yield current_start, current_stop
-
-
-    def line_extract(self, target, condition, ignore_ranges=[]):
+    def line_extract(self, target, condition, ignore_list=[]):
         """Expects a list as produced by parse_tags, extracts lines that fulfill
         condition, including all relevant BBCode, opens the tags. Returns two
         lists of lists of complete lines. One is parsed BBCode, the other is
         plaintext.
 
         Can be fed a list of position pairs to ignore."""
-        s = -1        
-        lines, plain_lines = deque(), deque()
+        tsave = target.bbc_rep[:], target.bbc_indices.copy(), target.newline_pos[:]
+        target.remove_sections(ignore_list)
 
-        plain_rep = ""
-        bbcode_rep = deque()
+        # Get individual lines
+        try:
+            lines, plain_lines = target.get_lines()
+        except TypeError:
+            print(tsave[0])
+            print(tsave[1:])
 
-        range_gen = self.range_generator(ignore_ranges)
-        lower, upper = next(range_gen)
+        # Test lines
+        gen = ((l, pl) for l, pl in zip(lines, plain_lines) if condition(pl))
+        try:
+            lines, plain_lines = list(list(i) for i in zip(*gen))
+        except ValueError:
+            return [], []
 
-        # Dividing the post by newlines, reconstruct lines and check condition
-        for n, node in enumerate(target):
-            # if newline, check the sentence and clear it.
+        # try:
+        #     lines[0].insert(0, self.open_all_closed(chain(*lines),target[s::-1]))
+        # except AttributeError:
+        #     print(lines)
+        #     print(plain_lines)
+        #     raise AttributeError
 
-            if '\n' in node:
-                if condition(plain_rep):
-                    plain_lines.append(plain_rep)
-                    lines.append(bbcode_rep)
-
-                    # Record position to scan back from for open_all_closed
-                    if s == -1:
-                        s = n
-
-                # clear line
-                plain_rep = ""
-                bbcode_rep = deque()
-
-            # Check ignore ranges
-            while n >= upper:
-                lower, upper = next(range_gen)
-
-            # Construct line
-            if n < lower:
-                bbcode_rep.append(node)
-                try:
-                    plain_rep += node
-                except TypeError:
-                    pass
-
-        if not lines:
-            return None, None
-
-        lines[0].extendleft(self.open_all_closed(chain(*lines),target[s::-1]))
         # lines[-1].extend((self.close_all_open(chain(*lines))))
 
         return list(lines), list(plain_lines)
