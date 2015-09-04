@@ -41,7 +41,14 @@ class TagSoup(object):
             ranges.append([i + 1])
         ranges[-1].append(stop)
 
-        return list(chain.from_iterable(islice(lst, s, e) for s, e in ranges))
+        try:
+            getter = itemgetter(*[j for s, e in ranges for j in range(s, e)])
+        except TypeError:
+            return []
+
+        return getter(lst)
+
+        # return list(chain.from_iterable(islice(lst, s, e) for s, e in ranges))
 
 
     def get_lines(self):
@@ -352,11 +359,7 @@ class BBCodeParser(object):
         target.remove_sections(ignore_list)
 
         # Get individual lines
-        try:
-            lines, plain_lines = target.get_lines()
-        except TypeError:
-            print(tsave[0])
-            print(tsave[1:])
+        lines, plain_lines = target.get_lines()
 
         # Test lines
         gen = ((l, pl) for l, pl in zip(lines, plain_lines) if condition(pl))

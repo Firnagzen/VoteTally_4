@@ -1,6 +1,6 @@
 from textwrap import dedent
 from voteparser import VoteContainer
-from bbcodeparser import BBCodeParser
+from bbcodeparser import BBCodeParser, TagSoup
 
 parse_text = dedent("""\
 [font=\"Tahoma\"][i]absbdasd[color=green]
@@ -133,22 +133,25 @@ with open("pmas.json", "r") as f:
 # "[VC.vote_from_text(parse_text) for i in range(10000)]"
 # "[BC.line_extract(ppost, VC.is_vote) for i in range(10000)]"
 
-# n = 10
-# a = timeit.timeit("VC.tally_votes(big_test['posts'], 'Firnagzen')", setup=dedent("""
-# from __main__ import BBCodeParser, VoteContainer, big_test
-# VC = VoteContainer()"""), number = n)
-# print(a/n)
+n = 10
+a = timeit.timeit("VC.tally_votes(big_test['posts'], 'Firnagzen')", setup=dedent("""
+from __main__ import BBCodeParser, VoteContainer, big_test
+VC = VoteContainer()"""), number = n)
+print(a/n)
 
 # from line_profiler import LineProfiler
 # profiler = LineProfiler(
+#     TagSoup.__getitem__, TagSoup.skip_slice, TagSoup.get_lines,
+#     TagSoup.find_slice_pos, TagSoup.normalize_newlines, 
+#     TagSoup.normalize_bbcode_index, TagSoup.remove_sections, 
 #     VC.BBparse.parse_tags, VC.extract_votes, VC.vote_from_text, 
-#     VC.BBparse.index_tag_pairs, VC.BBparse.line_extract
+#     VC.BBparse.line_extract
 #     )
-# profiler.add_function(func)
+# # profiler.add_function(func)
 # profiler.enable_by_count()
 
-b = VC.tally_votes(big_test['posts'], 'Firnagzen')
-# print(b)
+# b = VC.tally_votes(big_test['posts'], 'Firnagzen')
+# # print(b)
 
 # profiler.print_stats()
 
