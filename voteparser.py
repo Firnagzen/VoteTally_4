@@ -22,7 +22,7 @@ class LUOrderedDict(OrderedDict):
 
 
 class VoteContainer(object):
-    def __init__(self):
+    def __init__(self, timeout=10):
         self.defaults = {
             "sim_cutoff"         : 0.95,
             "break_level"        : 0, # 0=entire vote, 1=blocks, 2=lines
@@ -31,6 +31,8 @@ class VoteContainer(object):
             "instant_runoff"     : 0,
             "sort_highest"       : 0
         }
+
+        self.timeout = timeout
 
         self.BBparse = BBCodeParser()
 
@@ -364,7 +366,7 @@ class VoteContainer(object):
 
     def tally_votes_timeout(self, post_list, op, **kwargs):
         signal.signal(signal.SIGALRM, self._handle_timeout)
-        signal.alarm(10)
+        signal.alarm(self.timeout)
         try:
             result = self.tally_votes(post_list, op, **kwargs)
         finally:
