@@ -49,52 +49,100 @@ class BBCodeParser(object):
         chop = self.tag_re.split(target)
         chop = self.grouper(chop, 6)
 
-        outer = deque()
+        count = -1
+        positions = dict()
+        newline_pos, outer = deque(), deque()
 
         # re.split produces text in groups of 7
         for t, full, close, name, _, value in chop:
             if t:
                 outer.append(t)
+                count += 1
 
             if full:
+                count += 1
+
                 try:
                     name = name.lower()
+
                 except AttributeError:
                     outer.append(full)
+                    # Build newline index for fast access
+                    if '\n' in full:
+                        newline_pos.append(count)
+
                 else:
                     # Validate BBCode
                     if name in self.valid_bbcode:
                         outer.append(self.Tag(full, close, name, value))
+
+                        # Build position index for fast BBCode access
+                        try:
+                            curr = positions[name]
+                        except KeyError:
+                            curr = positions[name] = deque(), deque()
+                        finally:
+                            if close:
+                                curr[1].append(count)
+                            else:
+                                curr[0].append(count)
+
                     else:
                         outer.append(full)
+        return list(outer), positions, newline_pos
 
-        return list(outer)
+
+    def invert_ranges(self, ranges):
+        "Merge adjacent and overlapping ranges, return inverted slicing ranges."
+        previous_stop = 0
+        ranges = iter(sorted(ranges))
+        curr_start, curr_stop, cl = next(ranges)
+
+        for start, stop, nl in ranges:
+            if start > curr_stop + 1:
+                # Gap between segments: output current segment
+                yield previous_stop, curr_start, cl
+                previous_stop = curr_stop + 1
+                curr_start, curr_stop = start, stop
+
+            else:
+                # Segments adjacent or overlapping: merge.
+                curr_stop = max(curr_stop, stop)
+
+            # Newline marker
+            cl = nl
+
+        yield previous_stop, curr_start, nl
+        yield curr_stop, None, 0
 
 
-    def index_tag_pairs(self, target, tags):
-        """Expects a list as produced by parse_tags, returns largest possible 
-        ranges wrapped by matching tags. Takes an iterable of tags."""
-        tags = set(tags)
-        output = deque()
-        start, level, prev = 0, 0, 0
+    def find_breakpoints(self, bbc_indices, nl_indices, rem):
+        # Unpack bbcode indices as ranges for those that are to be removed
+        rem_bbc =[
+            (j, l, False) 
+            for k, i in bbc_indices.items() 
+            for j, l in zip(*i) 
+            if k in rem
+            ]
 
-        # Find tag indices, position 0 for open and 1 for closed
-        for n, tag in enumerate(target):
-            if isinstance(tag, self.Tag) and tag.name in tags:
-                level += -1 if tag.close else 1
-                level = max(0, level)
+        # Unpack newline indices
+        rem_bbc.extend((i, i, True) for i in nl_indices)
 
-                # Detect step from baseline
-                if prev == 0 and level == 1:
-                    start = n
+        # Make a copy for plaintext version
+        rem_plain = rem_bbc.copy()
 
-                # Detect step to baseline
-                elif prev == 1 and level == 0:
-                    output.append((start, n))
+        # Unpack other bbcode indices as points
+        rem_plain.extend(
+            (l, l, False) 
+            for k,i in bbc_indices.items() 
+            for j in zip(*i)
+            for l in j
+            if k not in rem
+            )
 
-                prev = level
+        print(rem_plain)
 
-        return list(output)
+        return self.invert_ranges(rem_bbc), self.invert_ranges(rem_plain)
 
 
     def close_all_open(self, target):
@@ -150,98 +198,23 @@ class BBCodeParser(object):
         return output
 
 
-    def range_generator(self, ignore_ranges):
-        "Gets next range from list of ranges. Yields infinity on finish."
-        large =  9999999
-
-        for i in ignore_ranges:
-            yield i
-        yield large, large
-
-
-    def in_valid_range(self, flat_ignore_ranges, ind):
-        "Checks if ind is inside ignore ranges"
-        return not bisect.bisect(flat_ignore_ranges, ind) % 2
-
-
-    def indices(self, lst, element):
-        "Finds element in lst, returns lists of appendices."
-        result = deque()
-        offset = -1
-        while True:
-            try:
-                offset = lst.index(element, offset+1)
-            except ValueError:
-                return result
-            result.append(offset)
-
-    def merge_ranges(self, ranges):
-        "Merge adjacent and overlapping ranges."
-        ranges = iter(sorted(ranges))
-        current_start, current_stop = next(ranges)
-
-        for start, stop in ranges:
-            if start > current_stop:
-                # Gap between segments: output current segment
-                yield current_start, current_stop
-                current_start, current_stop = start, stop
-
-            else:
-                # Segments adjacent or overlapping: merge.
-                current_stop = max(current_stop, stop)
-                
-        yield current_start, current_stop
-
-
-    def line_extract(self, target, condition, ignore_ranges=[]):
+    def line_extract(self, target, condition, ranges):
         """Expects a list as produced by parse_tags, extracts lines that fulfill
         condition, including all relevant BBCode, opens the tags. Returns two
         lists of lists of complete lines. One is parsed BBCode, the other is
         plaintext.
 
         Can be fed a list of position pairs to ignore."""
-        s = -1        
-        lines, plain_lines = deque(), deque()
-
-        plain_rep = ""
-        bbcode_rep = deque()
-
-        range_gen = self.range_generator(ignore_ranges)
-        lower, upper = next(range_gen)
-
-        # Dividing the post by newlines, reconstruct lines and check condition
-        for n, node in enumerate(target):
-            # if newline, check the sentence and clear it.
-
-            if node == '\n':
-                if condition(plain_rep):
-                    plain_lines.append(plain_rep)
-                    lines.append(bbcode_rep)
-
-                    # Record position to scan back from for open_all_closed
-                    if s == -1:
-                        s = n
-
-                # clear line
-                plain_rep = ""
-                bbcode_rep = deque()
-
-            # Check ignore ranges
-            while n >= upper:
-                lower, upper = next(range_gen)
-
-            # Construct line
-            if n < lower:
-                bbcode_rep.append(node)
-                try:
-                    plain_rep += node
-                except TypeError:
-                    pass
+        print([target[i:j] for i, j, nl in ranges[0]])
+        lines = [target[i:j] for i, j, nl in ranges[0]]
+        print([target[i:j] for i, j, nl in ranges[1]])
+        raise Exception
+        plain_lines = ["".join(target[i:j]) for i, j in ranges[1]]
 
         if not lines:
             return None, None
 
-        lines[0].extendleft(self.open_all_closed(chain(*lines),target[s::-1]))
+        # lines[0].extendleft(self.open_all_closed(chain(*lines),target[s::-1]))
         # lines[-1].extend((self.close_all_open(chain(*lines))))
 
         return list(lines), list(plain_lines)
