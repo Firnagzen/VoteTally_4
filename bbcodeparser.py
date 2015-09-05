@@ -95,16 +95,8 @@ class BBCodeParser(object):
     def invert_ranges(self, ranges):
         "Merge adjacent and overlapping ranges, return inverted slicing ranges."
         ranges = iter(sorted(ranges))
+        previous_stop, nl = 0, False
         curr_start, curr_stop, cl = next(ranges)
-        print(">>>>", curr_start, curr_stop)
-        previous_stop = 0
-
-        # try:
-        #     self.start
-        # except AttributeError:
-        #     self.start = 1
-        # else:
-        #     print(curr_start)
 
         for start, stop, nl in ranges:
             if start > curr_stop:
@@ -145,7 +137,7 @@ class BBCodeParser(object):
             for k,i in bbc_indices.items() 
             for j in zip_longest(*i)
             for l in j
-            if l
+            if l is not None
             )
 
         return self.invert_ranges(rem_bbc), self.invert_ranges(rem_plain)
@@ -215,19 +207,23 @@ class BBCodeParser(object):
 
         lines = deque([deque()])
         for i, j, nl in ranges[0]:
-            # print(i, j, nl, target[i:j])
             lines[-1].extend(target[i:j])
             if nl:
                 lines.append(deque())
 
+        debug = deque()
         plain_lines = deque([deque()])
         for i, j, nl in ranges[1]:
-            print(i, j, nl, target[i:j])
+            debug.append((i, j, nl, target[i:j]))
             plain_lines[-1].extend(target[i:j])
             if nl:
                 plain_lines.append(deque())
 
-        plain_lines = ["".join(i) for i in plain_lines]
+        try:
+            plain_lines = ["".join(i) for i in plain_lines]
+        except TypeError:
+            print(lines, "\n", plain_lines, "\n", debug)
+            raise Exception
 
         if not lines:
             return None, None
