@@ -122,7 +122,26 @@ import timeit, json
 with open("pmas.json", "r") as f:
     big_test = json.loads(f.read())
 
-# print(len(big_test['posts']))
+# for i in big_test['posts'][13740:13770]:
+#   print(i)
+
+a, b, c = BC.parse_tags('Not sure about this but\n\n[B][[S]x] Hug the Mami. Tighter.\n[x] Talk to Mami\n- [x] "I\'m sorry for saying something so stupid. That isn\'t why I want you with me."\n- [x] "You know that before all your history as a magical girl, I care about [I]you, right? [/I]I\'ll be with you no matter what. "\n[x] Gently push her chin up with the other, get her looking into your eyes, don\'t break eye contact.\n- [x] "When I came to in that alleyway, I didn\'t really have anything. No memories, no friends, and no family. But none of that matters now that I have you and the others. I know we\'ve only known each other for a few days but... You\'re more to me than just a powerful, experienced magical girl. You are more than just a friend. You\'re already like family to me. You [I]are[/I] my family. [I]That [/I]is why I\'m glad you\'re with me.\n- [x] "Besides, if you\'re not going to stop me from doing something stupid, who is?[/S]\n[B][S][x] Keep cleansing her Soul Gem"[/S][/B]\n[/B]\nToo much?\n\nReally sleepy right now. Might end up regretting this once  wake up. May have to edit or add on later.')
+
+for i in enumerate(a):
+  print(i)
+
+"""
+Bugs:
+invert_ranges goes weird if starting point is > end point
+"""
+
+d, e = BC.find_breakpoints(b, c, ["quote", "spoilers", "s"])
+
+# print([i for i in e])
+
+f, g = BC.line_extract(a, True, (d, e))
+
+print(g)
 
 # import cProfile
 # p = cProfile.run(
@@ -147,8 +166,8 @@ with open("pmas.json", "r") as f:
 # profiler.add_function(func)
 # profiler.enable_by_count()
 
-b = VC.tally_votes(big_test['posts'], 'Firnagzen')
-print(b)
+# b = VC.tally_votes(big_test['posts'], 'Firnagzen')
+# print(b)
 
 # profiler.print_stats()
 

@@ -10,9 +10,9 @@ class BBCodeParser(object):
             r"\n|"                                 # Newline
             r"\["                                  # Opening square bracket
             r"(/)?"                                # -Capture the closing tag /
-            r"([^]=]*)"                            # -Capture tag name
+            r"([^]\[=]*)"                          # -Capture tag name
             r"(?:=(?P<quote>['\"]?)"               # -Capture opening quotation
-            r"([^]]*)"                             # -Capture tag attribute
+            r"([^]\[]]*)"                          # -Capture tag attribute
             r"(?P=quote))?"                        # Closing quotation match
             r"\])"                                 # Closing square bracket
         )
@@ -27,6 +27,8 @@ class BBCodeParser(object):
             "fleft", "fright", "gview", "latex", "slider", "spoilerbb", "tabs", 
             "xtable"
         ])
+
+        self.debug = 0
 
     def grouper(self, iterable, n, fillvalue=None):
         args = [iter(iterable)] * n
@@ -113,12 +115,12 @@ class BBCodeParser(object):
             cl = nl
 
         yield previous_stop, curr_start, nl
-        yield curr_stop + 1, None, 0
+        yield curr_stop + 1, None, False
 
 
     def find_breakpoints(self, bbc_indices, nl_indices, rem):
         # Unpack bbcode indices as ranges for those that are to be removed
-        rem_bbc =[
+        rem_bbc = [
             (j, l, False) 
             for k, i in bbc_indices.items() 
             for j, l in zip(*i) 
@@ -139,6 +141,8 @@ class BBCodeParser(object):
             for l in j
             if l is not None
             )
+
+        print(rem_plain)
 
         return self.invert_ranges(rem_bbc), self.invert_ranges(rem_plain)
 
@@ -203,7 +207,7 @@ class BBCodeParser(object):
         plaintext.
 
         Can be fed a list of position pairs to ignore."""
-
+        self.debug += 1
 
         lines = deque([deque()])
         for i, j, nl in ranges[0]:
@@ -222,7 +226,7 @@ class BBCodeParser(object):
         try:
             plain_lines = ["".join(i) for i in plain_lines]
         except TypeError:
-            print(lines, "\n", plain_lines, "\n", debug)
+            print(self.debug, "\n", lines, "\n", plain_lines, "\n", debug)
             raise Exception
 
         if not lines:
