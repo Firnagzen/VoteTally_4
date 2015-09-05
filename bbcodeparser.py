@@ -94,12 +94,20 @@ class BBCodeParser(object):
 
     def invert_ranges(self, ranges):
         "Merge adjacent and overlapping ranges, return inverted slicing ranges."
-        previous_stop = 0
         ranges = iter(sorted(ranges))
         curr_start, curr_stop, cl = next(ranges)
+        print(">>>>", curr_start, curr_stop)
+        previous_stop = 0
+
+        # try:
+        #     self.start
+        # except AttributeError:
+        #     self.start = 1
+        # else:
+        #     print(curr_start)
 
         for start, stop, nl in ranges:
-            if start > curr_stop + 1:
+            if start > curr_stop:
                 # Gap between segments: output current segment
                 yield previous_stop, curr_start, cl
                 previous_stop = curr_stop + 1
@@ -113,7 +121,7 @@ class BBCodeParser(object):
             cl = nl
 
         yield previous_stop, curr_start, nl
-        yield curr_stop, None, 0
+        yield curr_stop + 1, None, 0
 
 
     def find_breakpoints(self, bbc_indices, nl_indices, rem):
@@ -125,7 +133,7 @@ class BBCodeParser(object):
             if k in rem
             ]
 
-        # Unpack newline indices
+        # Unpack newline indices, last value being newline indicator
         rem_bbc.extend((i, i, True) for i in nl_indices)
 
         # Make a copy for plaintext version
@@ -135,12 +143,10 @@ class BBCodeParser(object):
         rem_plain.extend(
             (l, l, False) 
             for k,i in bbc_indices.items() 
-            for j in zip(*i)
+            for j in zip_longest(*i)
             for l in j
-            if k not in rem
+            if l
             )
-
-        print(rem_plain)
 
         return self.invert_ranges(rem_bbc), self.invert_ranges(rem_plain)
 
@@ -205,11 +211,23 @@ class BBCodeParser(object):
         plaintext.
 
         Can be fed a list of position pairs to ignore."""
-        print([target[i:j] for i, j, nl in ranges[0]])
-        lines = [target[i:j] for i, j, nl in ranges[0]]
-        print([target[i:j] for i, j, nl in ranges[1]])
-        raise Exception
-        plain_lines = ["".join(target[i:j]) for i, j in ranges[1]]
+
+
+        lines = deque([deque()])
+        for i, j, nl in ranges[0]:
+            # print(i, j, nl, target[i:j])
+            lines[-1].extend(target[i:j])
+            if nl:
+                lines.append(deque())
+
+        plain_lines = deque([deque()])
+        for i, j, nl in ranges[1]:
+            print(i, j, nl, target[i:j])
+            plain_lines[-1].extend(target[i:j])
+            if nl:
+                plain_lines.append(deque())
+
+        plain_lines = ["".join(i) for i in plain_lines]
 
         if not lines:
             return None, None

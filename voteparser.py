@@ -44,7 +44,6 @@ class VoteContainer(object):
         self.voter_format = "[post={}]{}[/post]"
 
         self.rem_text = set(["quote", "spoiler", "s"])
-        self.rem_text_check = set(["quote", "spoiler", "[s]"])
 
         self.vote_fourple ="vote_bbcode", "vote_plain", "vote_reduced", "marker"
         self.generators = [None, self.break_blocks, self.break_lines]
@@ -72,10 +71,11 @@ class VoteContainer(object):
         """Extracts vote, returns a list of the parsed vote and plain text vote.
         Tidies up BBCode. Currently ignores all quoted text."""
         ppost, bbc_i, newline_i = self.BBparse.parse_tags(post)
-        print(ppost[130:135])
+        
         rem = self.BBparse.find_breakpoints(bbc_i, newline_i, self.rem_text)
 
         vote, vote_plain = self.BBparse.line_extract(ppost, self.is_vote, rem)
+        
         return vote, vote_plain
 
 
