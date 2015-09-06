@@ -1,5 +1,5 @@
 import re
-import bisect
+from copy import copy
 from itertools import chain, zip_longest
 from collections import namedtuple, Counter, deque
 
@@ -95,52 +95,80 @@ class BBCodeParser(object):
 
 
     def invert_ranges(self, ranges):
-        "Merge adjacent and overlapping ranges, return inverted slicing ranges."
-        ranges = iter(sorted(ranges))
-        previous_stop, nl = 0, False
-        curr_start, curr_stop, cl = next(ranges)
+        de_o, de_c = sorted(ranges[0]), sorted(ranges[1])
+        o, nl, c, _ = de_o.popleft(), de_c.popleft()
+        level, prev_level = 0, 0
 
-        for start, stop, nl in ranges:
-            if start > curr_stop:
-                # Gap between segments: output current segment
-                yield previous_stop, curr_start, cl
-                previous_stop = curr_stop + 1
-                curr_start, curr_stop = start, stop
+
+        # Newline marker handling
+
+        while True:
+            if o < c:
+                # Rising edge
+                prev_level, level = level, level + 1
+
+                # Detect step from baseline
+                if prev_level == 0 and level == 1:
+                    start = o
+
+                try:
+                    o, nl = rem_o.popleft()
+                except IndexError:
+                    o, nl = float('inf'), False
+
+            elif o > c:
+                # Falling edge
+                prev_level, level = level, max(0, level - 1)
+
+                # Detect step to baseline
+                if prev_level == 1 and level == 0:
+                    yield start, c
+
+                try:
+                    c = rem_c.popleft()
+                except IndexError:
+                    break
 
             else:
-                # Segments adjacent or overlapping: merge.
-                curr_stop = max(curr_stop, stop)
+                # Flat, newline or BBCode to remove
+                if prev_level == level == 0:
+                    yield c, c + 1
 
-            # Newline marker
-            cl = nl
+                try:
+                    o = rem_o.popleft()
+                except IndexError:
+                    o = float('inf')
 
-        yield previous_stop, curr_start, nl
-        yield curr_stop + 1, None, False
+                try:
+                    c = rem_c.popleft()
+                except IndexError:
+                    break
 
 
     def find_breakpoints(self, bbc_indices, nl_indices, rem):
         # Unpack bbcode indices as ranges for those that are to be removed
-        rem_bbc = [
-            (j, l, False) 
-            for k, i in bbc_indices.items() 
-            for j, l in zip(*i) 
-            if k in rem
-            ]
+        rem_bbc = deque(), deque()
+        for k, (o, c) in bbc_indices.items():
+            if k in rem:
+                rem_bbc[0].extend((i, False) for i in o)
+                rem_bbc[1].extend((i, False) for i in c)
 
         # Unpack newline indices, last value being newline indicator
-        rem_bbc.extend((i, i, True) for i in nl_indices)
+        unpack = deque((i, True) for i in nl_indices)
+        rem_bbc[0].extend(unpack)
+        rem_bbc[1].extend(unpack)
 
         # Make a copy for plaintext version
-        rem_plain = rem_bbc.copy()
+        rem_plain = copy(rem_bbc[0]), copy(rem_bbc[1])
 
         # Unpack other bbcode indices as points
-        rem_plain.extend(
-            (l, l, False) 
-            for k,i in bbc_indices.items() 
-            for j in zip_longest(*i)
-            for l in j
-            if l is not None
-            )
+        for k, (o, c) in bbc_indices.items():
+            if k not in rem:
+                unpack = deque((i, False) for i in o)
+                unpack.extend((i, False) for i in c)
+
+                rem_plain[0].extend(unpack)
+                rem_plain[1].extend(unpack)
 
         print(rem_plain)
 
