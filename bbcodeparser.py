@@ -10,9 +10,9 @@ class BBCodeParser(object):
             r"\n|"                                 # Newline
             r"\["                                  # Opening square bracket
             r"(/)?"                                # -Capture the closing tag /
-            r"([^]=]*)"                            # -Capture tag name
+            r"([^]\[=]*)"                          # -Capture tag name
             r"(?:=(?P<quote>['\"]?)"               # -Capture opening quotation
-            r"([^]]*)"                             # -Capture tag attribute
+            r"([^]\[]]*)"                          # -Capture tag attribute
             r"(?P=quote))?"                        # Closing quotation match
             r"\])"                                 # Closing square bracket
         )
